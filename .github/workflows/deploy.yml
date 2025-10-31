@@ -2,8 +2,16 @@ name: Deploy via CodeDeploy & S3
 
 on:
   push:
-    branches:
-      - pipeline-deploy
+    branches: [ pipeline-deploy ]
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: us-east-1
+  APP_NAME: CodeDeployDemo
+  DEPLOYMENT_GROUP: CodeDeployDemo-Grp
+  S3_BUCKET: ethanwestenskowtestbucket
+  # unique bundle name per run so CodeDeploy/S3 don't cache
+  BUNDLE_KEY: app-${{ github.run_number }}-${{ github.sha }}.zip
 
 jobs:
   deploy:
@@ -18,17 +26,21 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Zip and upload to S3
+      - name: Create deployment bundle
         run: |
-          zip -r app.zip .
-          aws s3 cp app.zip s3://ethanwestenskowtestbucket/app.zip
+          # Zip repo contents for CodeDeploy (exclude git metadata and workflows)
+          zip -r "${BUNDLE_KEY}" . -x ".git/*" ".github/*"
+
+      - name: Upload bundle to S3
+        run: |
+          aws s3 cp "${BUNDLE_KEY}" "s3://${S3_BUCKET}/${BUNDLE_KEY}"
 
       - name: Trigger CodeDeploy deployment
         run: |
           aws deploy create-deployment \
-            --application-name CodeDeployDemo \
-            --deployment-group-name CodeDeployDemo-Grp \
-            --s3-location bucket=ethanwestenskowtestbucket,key=app.zip,bundleType=zip \
-            --region us-east-1
+            --application-name "${APP_NAME}" \
+            --deployment-group-name "${DEPLOYMENT_GROUP}" \
+            --s3-location bucket="${S3_BUCKET}",key="${BUNDLE_KEY}",bundleType=zip \
+            --region "${AWS_REGION}"
